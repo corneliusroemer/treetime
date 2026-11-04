@@ -562,3 +562,36 @@ def test_cli_timetree_uses_date_of_single_child_node(tmp_path):
     numeric_dates = {row[0]: float(row[2]) for row in rows}
     assert abs(numeric_dates['U'] - 2000.0) < 1e-6
     assert 'V' not in numeric_dates
+
+
+@pytest.mark.parametrize('n_children', [0, 2, 3, 5])
+@pytest.mark.parametrize('width', [5.0, 20.0])
+def test_posterior_branch_count_scales_event_multiplicity(n_children, width):
+    """The posterior expected lineage count must include merger multiplicity."""
+    from types import SimpleNamespace
+
+    import numpy as np
+    from scipy.special import expit, ndtri
+    from treetime.merger_models import Coalescent
+
+    # Exact events delimit a region with two lineages; they must stay discrete.
+    oldest = SimpleNamespace(time_before_present=300.0, clades=[None, None], bad_branch=False)
+    youngest = SimpleNamespace(time_before_present=0.0, clades=[], bad_branch=False)
+    uncertain = SimpleNamespace(
+        time_before_present=100.0,
+        bad_branch=False,
+        clades=[None] * n_children,
+        marginal_pos_LH=SimpleNamespace(is_delta=False),
+        marginal_inverse_cdf=lambda p: 100.0 + width * ndtri(p),
+    )
+    coalescent = Coalescent.__new__(Coalescent)
+    coalescent.tree = SimpleNamespace(find_clades=lambda: [oldest, uncertain, youngest])
+    coalescent.calc_branch_count(posterior=True)
+
+    p = expit(np.array([-8, -4, -3, -2, 0, 2, 3, 4, 8], dtype=float))[1:-1]
+    dates = uncertain.marginal_inverse_cdf(p)
+    expected = 2 + (n_children - 1) * (1 - p)
+    np.testing.assert_allclose(coalescent.nbranches(dates), expected, atol=1e-9)
+
+    # Exact-date events retain their existing discrete steps.
+    np.testing.assert_allclose(coalescent.nbranches([250.0, 320.0]), [2.0, 1.0], atol=1e-9)
