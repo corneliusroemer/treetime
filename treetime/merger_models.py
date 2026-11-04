@@ -193,13 +193,22 @@ class Coalescent(object):
 
     def branch_merger_rate(self, t):
         r"""
-        rate at which one particular branch merges with any other branch at time t,
-        in the Kingman model this is: :math:`\kappa(t) = (k(t)-1)/(2Tc(t))`
+        half the merger hazard of one lineage, used to distribute the total
+        survival hazard evenly across active branches. In the Kingman model:
+        :math:`\kappa(t) = (k(t)-1)/(2Tc(t))`
         """
         # note that we always have a positive merger rate by capping the
         # number of branches at 0.5 from below. in these regions, the
         # function should only be called if the tree changes.
         return 0.5 * np.maximum(0.5, self.nbranches(t) - 1.0) / self.Tc(t)
+
+    def pair_merger_rate(self, t):
+        r"""
+        Kingman coalescence rate for one specified pair of lineages.
+        Unlike total_merger_rate, this does not include the number of
+        possible pairs: the observed genealogy identifies the merging pair.
+        """
+        return 1.0 / self.Tc(t)
 
     def total_merger_rate(self, t):
         r"""
@@ -216,9 +225,10 @@ class Coalescent(object):
         r"""
         returns the cost associated with a branch starting with divergence time t_node (:math:`t_n`)
         having a branch length :math:`\tau`.
-        This is equivalent to the probability of there being no merger on that branch and a merger at the end of the branch,
-        calculated in the negative log
-        :math:`-log(\lambda(t_n+ \tau)^{(m-1)/m}) + \int_{t_n}^{t_n+ \tau} \kappa(t) dt`, where m is the multiplicity
+        The branch's share of the total survival cost plus its share of the
+        observed merger event's cost (for a labelled Kingman genealogy):
+        :math:`-log(\rho(t_n+\tau)^{(m-1)/m}) + \int_{t_n}^{t_n+\tau} \kappa(t) dt`,
+        where :math:`\rho(t)=1/Tc(t)` is the specified-pair rate and m is the multiplicity.
 
         Parameters
         ----------
@@ -233,7 +243,7 @@ class Coalescent(object):
         return (
             self.integral_merger_rate(merger_time)
             - self.integral_merger_rate(t_node)
-            - np.log(self.total_merger_rate(merger_time)) * (multiplicity - 1.0) / multiplicity
+            - np.log(self.pair_merger_rate(merger_time)) * (multiplicity - 1.0) / multiplicity
         )
 
     def node_contribution(self, node, t, multiplicity=None):
@@ -246,7 +256,7 @@ class Coalescent(object):
             multiplicity = len(node.clades)
         # the number of mergers is 'number of children' - 1
         multiplicity -= 1.0
-        y = (self.integral_merger_rate(t) - np.log(self.total_merger_rate(t))) * multiplicity
+        y = (self.integral_merger_rate(t) - np.log(self.pair_merger_rate(t))) * multiplicity
         return NodeInterpolator(t, y, is_log=True)
 
     def total_LH(self):
